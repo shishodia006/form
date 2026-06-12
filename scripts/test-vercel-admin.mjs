@@ -5,7 +5,7 @@ process.env.VERCEL = "1";
 process.env.ADMIN_USERNAME = "test-admin";
 process.env.ADMIN_PASSWORD = "test-password";
 process.env.SESSION_SECRET = "test-session-secret-with-enough-random-text";
-delete process.env.DATABASE_URL;
+process.env.DATABASE_URL = "postgresql://user:password@host/database?sslmode=require";
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
 const { default: vercelHandler } = await import("../api/index.js");
@@ -21,6 +21,10 @@ const address = server.address();
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 try {
+  const healthResponse = await fetch(`${baseUrl}/api/health`);
+  const health = await healthResponse.json();
+  assert.equal(health.database, "local");
+
   const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
