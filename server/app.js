@@ -460,7 +460,14 @@ app.get("/api/admin/session", requireAdmin, (request, response) => {
 
 app.get("/api/admin/submissions", requireAdmin, async (_request, response, next) => {
   try {
-    requireVercelDatabase();
+    if (isVercel && !usesPersistentDatabase()) {
+      response.json({
+        ok: true,
+        submissions: [],
+        setupRequired: "Connect Neon in Vercel so form responses can be saved and displayed here.",
+      });
+      return;
+    }
     response.json({ ok: true, submissions: await listSubmissions() });
   } catch (error) {
     next(error);

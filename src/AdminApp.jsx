@@ -102,21 +102,43 @@ function initials(name) {
 }
 
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-    ...options,
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(result.error || "Request failed.");
-    error.status = response.status;
-    throw error;
+  try {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+      ...options,
+    });
+    const responseText = await response.text();
+    let result = {};
+
+    if (responseText) {
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        result = {};
+      }
+    }
+
+    if (!response.ok) {
+      const fallbackMessages = {
+        404: "Admin API route was not found. Redeploy the latest GitHub commit on Vercel.",
+        500: "The admin server encountered an error.",
+        503: "Admin storage is not configured yet.",
+      };
+      const error = new Error(
+        result.error || fallbackMessages[response.status] || `Request failed with status ${response.status}.`,
+      );
+      error.status = response.status;
+      throw error;
+    }
+    return result;
+  } catch (error) {
+    if (error?.status) throw error;
+    throw new Error("Could not reach the admin server. Check your connection and try again.");
   }
-  return result;
 }
 
 function LoginScreen({ onLogin }) {
@@ -354,11 +376,15 @@ function Dashboard({ username, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState("");
+  const [setupMessage, setSetupMessage] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
 
   useEffect(() => {
     apiRequest("/api/admin/submissions")
-      .then((result) => setSubmissions(result.submissions))
+      .then((result) => {
+        setSubmissions(result.submissions);
+        setSetupMessage(result.setupRequired || "");
+      })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, []);
@@ -456,6 +482,13 @@ function Dashboard({ username, onLogout }) {
             Your website leads, all in one place.
           </h2>
         </div>
+
+        {setupMessage && (
+          <div className="mb-7 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+            <p className="font-extrabold">Admin login successful. Storage setup is pending.</p>
+            <p>{setupMessage}</p>
+          </div>
+        )}
 
         <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
