@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   ArrowLeft,
   ArrowRight,
@@ -502,18 +503,69 @@ function App() {
     setSubmitError("");
 
     try {
-      const uploads = await Promise.all([
-        ...(logoFile ? [fileToPayload(logoFile, "Logo")] : []),
-        ...projectFiles.map((file) => fileToPayload(file, "Project file")),
-      ]);
+      const submissionId = crypto.randomUUID();
+      const formData = {
+        ...data,
+        phone: `+91${data.phone.replace(/\D/g, "")}`,
+        termsAccepted: true,
+        submittedAt: new Date().toISOString(),
+      };
+      const selectedFiles = [
+        ...(logoFile ? [{ file: logoFile, category: "Logo" }] : []),
+        ...projectFiles.map((file) => ({ file, category: "Project file" })),
+      ];
+      let uploads = [];
+      let uploadTicket = "";
+
+      if (selectedFiles.length) {
+        const authorizeResponse = await fetch("/api/uploads/authorize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            submissionId,
+            formData,
+            files: selectedFiles.map(({ file, category }) => ({
+              name: file.name,
+              mimeType: file.type || "application/octet-stream",
+              size: file.size,
+              category,
+            })),
+          }),
+        });
+        const authorization = await authorizeResponse.json().catch(() => ({}));
+        if (!authorizeResponse.ok || authorization.ok !== true) {
+          throw new Error(authorization.error || "Could not prepare the file upload.");
+        }
+
+        if (authorization.mode === "blob") {
+          uploadTicket = authorization.ticket;
+          uploads = await Promise.all(
+            authorization.uploads.map(async (descriptor, index) => {
+              const selected = selectedFiles[index];
+              const blob = await upload(descriptor.pathname, selected.file, {
+                access: "private",
+                handleUploadUrl: "/api/uploads",
+                clientPayload: JSON.stringify({ ticket: uploadTicket }),
+                contentType: descriptor.mimeType,
+              });
+              return {
+                ...descriptor,
+                pathname: blob.pathname,
+                blobUrl: blob.url,
+              };
+            }),
+          );
+        } else {
+          uploads = await Promise.all(
+            selectedFiles.map(({ file, category }) => fileToPayload(file, category)),
+          );
+        }
+      }
 
       const payload = {
-        formData: {
-          ...data,
-          phone: `+91${data.phone.replace(/\D/g, "")}`,
-          termsAccepted: true,
-          submittedAt: new Date().toISOString(),
-        },
+        submissionId,
+        uploadTicket,
+        formData,
         files: uploads,
         meta: {
           sourceUrl: window.location.href,
